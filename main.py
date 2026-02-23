@@ -49,7 +49,7 @@ def persistent_menu():
 # БІНАРНА ТАБЛИЦЯ
 # =========================
 binary_code = {
-    **{c: format(i+1, "05b") for i, c in enumerate(string.ascii_uppercase)},
+    **{c: format(i + 1, "05b") for i, c in enumerate(string.ascii_uppercase)},
     " ": "00000"
 }
 
@@ -79,7 +79,7 @@ def build_horizontal(bits, width):
 
 
 def build_vertical(bits, height):
-    matrix = [[0]*len(bits) for _ in range(height)]
+    matrix = [[0] * len(bits) for _ in range(height)]
     for col, bit in enumerate(bits):
         current = int(bit)
         for row in range(height):
@@ -99,14 +99,14 @@ def generate_image(horizontal_text, vertical_text, active_color, with_label, hd=
     height = len(h_bits) if h_bits else 5
     width = len(v_bits) if v_bits else 5
 
-    H = build_horizontal(h_bits or "0"*5, width)
-    V = build_vertical(v_bits or "0"*5, height)
+    H = build_horizontal(h_bits or "0" * 5, width)
+    V = build_vertical(v_bits or "0" * 5, height)
 
     extra_space = 2 if with_label else 0
-    total_height = height + 2*MARGIN + extra_space
-    total_width = width + 2*MARGIN
+    total_height = height + 2 * MARGIN + extra_space
+    total_width = width + 2 * MARGIN
 
-    # HD налаштування
+    # HD режим
     if hd:
         figsize = (15, 15)
         dpi = 600
@@ -123,46 +123,46 @@ def generate_image(horizontal_text, vertical_text, active_color, with_label, hd=
     fig, ax = plt.subplots(figsize=figsize)
 
     # Сітка
-    for x in range(total_width+1):
-        ax.plot([x,x],[extra_space,total_height],
-                color=GRID_COLOR,alpha=GRID_ALPHA,linewidth=GRID_WIDTH)
+    for x in range(total_width + 1):
+        ax.plot([x, x], [extra_space, total_height],
+                color=GRID_COLOR, alpha=GRID_ALPHA, linewidth=GRID_WIDTH)
 
-    for y in range(extra_space,total_height+1):
-        ax.plot([0,total_width],[y,y],
-                color=GRID_COLOR,alpha=GRID_ALPHA,linewidth=GRID_WIDTH)
+    for y in range(extra_space, total_height + 1):
+        ax.plot([0, total_width], [y, y],
+                color=GRID_COLOR, alpha=GRID_ALPHA, linewidth=GRID_WIDTH)
 
     # Лінії
     for r in range(height):
         for c in range(width):
-            draw_x = c+MARGIN
-            draw_y = height-r-1+MARGIN+extra_space
+            draw_x = c + MARGIN
+            draw_y = height - r - 1 + MARGIN + extra_space
 
-            if H[r][c]==1:
-                ax.plot([draw_x,draw_x+1],[draw_y,draw_y],
-                        color=active_color,linewidth=line_width)
+            if H[r][c] == 1:
+                ax.plot([draw_x, draw_x + 1], [draw_y, draw_y],
+                        color=active_color, linewidth=line_width)
 
-            if V[r][c]==1:
-                ax.plot([draw_x+1,draw_x+1],[draw_y,draw_y+1],
-                        color=active_color,linewidth=line_width)
+            if V[r][c] == 1:
+                ax.plot([draw_x + 1, draw_x + 1], [draw_y, draw_y + 1],
+                        color=active_color, linewidth=line_width)
 
     # Підпис
     if with_label:
         label = f"H: {horizontal_text} | V: {vertical_text}"
         ax.text(
-            total_width/2,
+            total_width / 2,
             0.8,
             label,
             ha="center",
             fontsize=font_size
         )
 
-    ax.set_xlim(0,total_width)
-    ax.set_ylim(0,total_height)
+    ax.set_xlim(0, total_width)
+    ax.set_ylim(0, total_height)
     ax.set_xticks([])
     ax.set_yticks([])
     ax.set_aspect("equal")
 
-    fig.savefig(filename,dpi=dpi,bbox_inches="tight")
+    fig.savefig(filename, dpi=dpi, bbox_inches="tight")
     plt.close(fig)
 
     return filename
@@ -194,19 +194,23 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["horizontal"] = ''.join(random.choices(string.ascii_uppercase, k=4))
         context.user_data["vertical"] = ''.join(random.choices(string.ascii_uppercase, k=4))
         context.user_data["step"] = "label_choice"
+
     elif text == "🚀 Створити візерунок":
         context.user_data.clear()
         context.user_data["step"] = "horizontal"
         await update.message.reply_text("Введи горизонтальний текст:")
         return
+
     elif context.user_data.get("step") == "horizontal":
         context.user_data["horizontal"] = text
         context.user_data["step"] = "vertical"
         await update.message.reply_text("Тепер введи вертикальний текст:")
         return
+
     elif context.user_data.get("step") == "vertical":
         context.user_data["vertical"] = text
         context.user_data["step"] = "label_choice"
+
     else:
         return
 
@@ -224,7 +228,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
     data = query.data
 
     if data.startswith("label_"):
@@ -266,16 +269,17 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.get("hd", False)
     )
 
-    await query.message.reply_photo(
-        photo=open(filename,"rb"),
-        reply_markup=persistent_menu()
-    )
+    with open(filename, "rb") as photo:
+        await query.message.reply_photo(
+            photo=photo,
+            reply_markup=persistent_menu()
+        )
 
     context.user_data.clear()
 
 
 # =========================
-# ЗАПУСК
+# ЗАПУСК (СТАБІЛЬНИЙ ДЛЯ RAILWAY)
 # =========================
 def main():
     if not TOKEN:
@@ -283,12 +287,15 @@ def main():
 
     app = ApplicationBuilder().token(TOKEN).build()
 
+    # Видаляємо можливий старий webhook
+    app.bot.delete_webhook(drop_pending_updates=True)
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     print("Bot running...")
-    app.run_polling()
+    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
