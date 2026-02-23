@@ -91,7 +91,7 @@ def build_vertical(bits, height):
 # =========================
 # ГЕНЕРАЦІЯ ЗОБРАЖЕННЯ
 # =========================
-def generate_image(horizontal_text, vertical_text, active_color, with_label):
+def generate_image(horizontal_text, vertical_text, active_color, with_label, hd=False):
 
     h_bits = text_to_bits(horizontal_text)
     v_bits = text_to_bits(vertical_text)
@@ -103,18 +103,31 @@ def generate_image(horizontal_text, vertical_text, active_color, with_label):
     V = build_vertical(v_bits or "0"*5, height)
 
     extra_space = 2 if with_label else 0
-
     total_height = height + 2*MARGIN + extra_space
     total_width = width + 2*MARGIN
 
-    fig, ax = plt.subplots(figsize=(8,8))
+    # HD налаштування
+    if hd:
+        figsize = (15, 15)
+        dpi = 600
+        line_width = 4
+        font_size = 20
+        filename = "pattern_hd.png"
+    else:
+        figsize = (8, 8)
+        dpi = 300
+        line_width = ACTIVE_WIDTH
+        font_size = 10
+        filename = "pattern.png"
+
+    fig, ax = plt.subplots(figsize=figsize)
 
     # Сітка
     for x in range(total_width+1):
         ax.plot([x,x],[extra_space,total_height],
                 color=GRID_COLOR,alpha=GRID_ALPHA,linewidth=GRID_WIDTH)
 
-    for y in range(extra_space, total_height+1):
+    for y in range(extra_space,total_height+1):
         ax.plot([0,total_width],[y,y],
                 color=GRID_COLOR,alpha=GRID_ALPHA,linewidth=GRID_WIDTH)
 
@@ -126,11 +139,11 @@ def generate_image(horizontal_text, vertical_text, active_color, with_label):
 
             if H[r][c]==1:
                 ax.plot([draw_x,draw_x+1],[draw_y,draw_y],
-                        color=active_color,linewidth=ACTIVE_WIDTH)
+                        color=active_color,linewidth=line_width)
 
             if V[r][c]==1:
                 ax.plot([draw_x+1,draw_x+1],[draw_y,draw_y+1],
-                        color=active_color,linewidth=ACTIVE_WIDTH)
+                        color=active_color,linewidth=line_width)
 
     # Підпис
     if with_label:
@@ -140,7 +153,7 @@ def generate_image(horizontal_text, vertical_text, active_color, with_label):
             0.8,
             label,
             ha="center",
-            fontsize=10
+            fontsize=font_size
         )
 
     ax.set_xlim(0,total_width)
@@ -149,8 +162,7 @@ def generate_image(horizontal_text, vertical_text, active_color, with_label):
     ax.set_yticks([])
     ax.set_aspect("equal")
 
-    filename="pattern.png"
-    fig.savefig(filename,dpi=300,bbox_inches="tight")
+    fig.savefig(filename,dpi=dpi,bbox_inches="tight")
     plt.close(fig)
 
     return filename
@@ -198,14 +210,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         return
 
-    # Вибір підпису
     keyboard = [
         [InlineKeyboardButton("🏷 З підписом", callback_data="label_yes")],
         [InlineKeyboardButton("🚫 Без підпису", callback_data="label_no")]
     ]
 
     await update.message.reply_text(
-        "Додати підпис внизу з використаними словами?",
+        "Додати підпис?",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -220,10 +231,24 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["with_label"] = data == "label_yes"
 
         keyboard = [
+            [InlineKeyboardButton("🖼 Звичайна якість", callback_data="quality_normal")],
+            [InlineKeyboardButton("🖨 HD для друку", callback_data="quality_hd")]
+        ]
+
+        await query.message.reply_text(
+            "Обери якість зображення:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    if data.startswith("quality_"):
+        context.user_data["hd"] = data == "quality_hd"
+
+        keyboard = [
             [InlineKeyboardButton("⚫ Black", callback_data="black"),
              InlineKeyboardButton("🔴 Red", callback_data="red")],
             [InlineKeyboardButton("🔵 Blue", callback_data="blue"),
-             InlineKeyboardButton("🟢 Green", callback_data="green")],
+             InlineKeyboardButton("🟢 Green", callback_data="green")]
         ]
 
         await query.message.reply_text(
@@ -237,7 +262,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["horizontal"],
         context.user_data["vertical"],
         data,
-        context.user_data.get("with_label", False)
+        context.user_data.get("with_label", False),
+        context.user_data.get("hd", False)
     )
 
     await query.message.reply_photo(
