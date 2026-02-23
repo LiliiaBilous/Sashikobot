@@ -279,16 +279,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================
-# ЗАПУСК (СТАБІЛЬНИЙ ДЛЯ RAILWAY)
+# ЗАПУСК
 # =========================
 def main():
     if not TOKEN:
-        raise ValueError("TOKEN не знайдено.")
+        raise ValueError("TOKEN не знайдено. Додай його у Railway Variables.")
 
     app = ApplicationBuilder().token(TOKEN).build()
-
-    # Видаляємо можливий старий webhook
-    app.bot.delete_webhook(drop_pending_updates=True)
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_callback))
