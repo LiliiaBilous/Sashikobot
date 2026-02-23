@@ -1,6 +1,5 @@
 import os
 import random
-import string
 import matplotlib.pyplot as plt
 from telegram import (
     Update,
@@ -28,6 +27,8 @@ GRID_ALPHA = 0.25
 GRID_WIDTH = 0.6
 MARGIN = 1
 
+MAGIC_WORD = "сашіко"
+
 
 # =========================
 # ПОСТІЙНЕ МЕНЮ
@@ -46,22 +47,12 @@ def persistent_menu():
 
 
 # =========================
-# БІНАРНА ТАБЛИЦЯ
-# =========================
-binary_code = {
-    **{c: format(i + 1, "05b") for i, c in enumerate(string.ascii_uppercase)},
-    " ": "00000"
-}
-
-
-# =========================
-# ЛОГІКА
+# КОДУВАННЯ
 # =========================
 def text_to_bits(text):
     bits = ""
-    for letter in text.upper():
-        if letter in binary_code:
-            bits += binary_code[letter]
+    for char in text:
+        bits += format(ord(char), "08b")
     return bits
 
 
@@ -89,24 +80,23 @@ def build_vertical(bits, height):
 
 
 # =========================
-# ГЕНЕРАЦІЯ ЗОБРАЖЕННЯ
+# ГЕНЕРАЦІЯ
 # =========================
-def generate_image(horizontal_text, vertical_text, active_color, with_label, hd=False):
+def generate_image(horizontal_text, vertical_text, color, with_label, hd=False):
 
     h_bits = text_to_bits(horizontal_text)
     v_bits = text_to_bits(vertical_text)
 
-    height = len(h_bits) if h_bits else 5
-    width = len(v_bits) if v_bits else 5
+    height = len(h_bits) if h_bits else 8
+    width = len(v_bits) if v_bits else 8
 
-    H = build_horizontal(h_bits or "0" * 5, width)
-    V = build_vertical(v_bits or "0" * 5, height)
+    H = build_horizontal(h_bits or "00000000", width)
+    V = build_vertical(v_bits or "00000000", height)
 
     extra_space = 2 if with_label else 0
     total_height = height + 2 * MARGIN + extra_space
     total_width = width + 2 * MARGIN
 
-    # HD режим
     if hd:
         figsize = (15, 15)
         dpi = 600
@@ -139,15 +129,19 @@ def generate_image(horizontal_text, vertical_text, active_color, with_label, hd=
 
             if H[r][c] == 1:
                 ax.plot([draw_x, draw_x + 1], [draw_y, draw_y],
-                        color=active_color, linewidth=line_width)
+                        color=color, linewidth=line_width)
 
             if V[r][c] == 1:
                 ax.plot([draw_x + 1, draw_x + 1], [draw_y, draw_y + 1],
-                        color=active_color, linewidth=line_width)
+                        color=color, linewidth=line_width)
 
-    # Підпис
+    # ПІДПИС
     if with_label:
-        label = f"H: {horizontal_text} | V: {vertical_text}"
+        if horizontal_text == vertical_text:
+            label = horizontal_text
+        else:
+            label = f"H: {horizontal_text} | V: {vertical_text}"
+
         ax.text(
             total_width / 2,
             0.8,
@@ -169,7 +163,7 @@ def generate_image(horizontal_text, vertical_text, active_color, with_label, hd=
 
 
 # =========================
-# TELEGRAM ЛОГІКА
+# TELEGRAM
 # =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
@@ -180,10 +174,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
+    text = update.message.text.strip()
+    lower = text.lower()
+
+    # 🔥 МАГІЧНЕ СЛОВО
+    if lower == MAGIC_WORD:
+        context.user_data.clear()
+        await update.message.reply_text(
+            "🧵 Режим Sashiko активовано.",
+            reply_markup=persistent_menu()
+        )
+        return
 
     if text == "🧠 Як це працює?":
-        context.user_data.clear()
         await update.message.reply_text(
             HOW_IT_WORKS_TEXT,
             reply_markup=persistent_menu()
@@ -191,8 +194,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if text == "🎲 Випадковий узор":
-        context.user_data["horizontal"] = ''.join(random.choices(string.ascii_uppercase, k=4))
-        context.user_data["vertical"] = ''.join(random.choices(string.ascii_uppercase, k=4))
+        context.user_data["horizontal"] = random.choice(["СОНЦЕ", "КОД", "ART", "LOVE"])
+        context.user_data["vertical"] = random.choice(["СОНЦЕ", "КОД", "ART", "LOVE"])
         context.user_data["step"] = "label_choice"
 
     elif text == "🚀 Створити візерунок":
@@ -248,19 +251,22 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["hd"] = data == "quality_hd"
 
         keyboard = [
-            [InlineKeyboardButton("⚫ Black", callback_data="black"),
-             InlineKeyboardButton("🔴 Red", callback_data="red")],
-            [InlineKeyboardButton("🔵 Blue", callback_data="blue"),
-             InlineKeyboardButton("🟢 Green", callback_data="green")]
+            [InlineKeyboardButton("🟦 Індиго класика", callback_data="#1E3A8A")],
+            [InlineKeyboardButton("⚪ Молочний", callback_data="#F8F5EC")],
+            [InlineKeyboardButton("⚫ Сажа", callback_data="#111827")],
+            [InlineKeyboardButton("🌿 Хвоя", callback_data="#065F46")],
+            [InlineKeyboardButton("🌾 Гірчичний", callback_data="#B45309")],
+            [InlineKeyboardButton("🔴 Бордо", callback_data="#8B0000")],
+            [InlineKeyboardButton("🌸 Пудровий", callback_data="#BE185D")],
+            [InlineKeyboardButton("💜 Сливовий", callback_data="#6B21A8")],
         ]
 
         await query.message.reply_text(
-            "Обери колір:",
+            "Обери колір нитки (Sashiko palette):",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
 
-    # Генерація
     filename = generate_image(
         context.user_data["horizontal"],
         context.user_data["vertical"],
@@ -278,12 +284,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
 
 
-# =========================
-# ЗАПУСК
-# =========================
 def main():
     if not TOKEN:
-        raise ValueError("TOKEN не знайдено. Додай його у Railway Variables.")
+        raise ValueError("TOKEN не знайдено.")
 
     app = ApplicationBuilder().token(TOKEN).build()
 
