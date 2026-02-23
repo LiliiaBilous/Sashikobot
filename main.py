@@ -16,10 +16,14 @@ from telegram.ext import (
     filters,
 )
 
+from texts import WELCOME_TEXT, HOW_IT_WORKS_TEXT
+
+
 # =========================
 # TOKEN береться з Railway Variables
 # =========================
 TOKEN = os.getenv("TOKEN")
+
 
 # =========================
 # НАЛАШТУВАННЯ
@@ -30,11 +34,11 @@ GRID_ALPHA = 0.25
 GRID_WIDTH = 0.6
 MARGIN = 1
 
+
 # =========================
 # БІНАРНА ТАБЛИЦЯ
 # =========================
 binary_code = {
-
     # LATIN
     "A": "00001","B": "00010","C": "00011","D": "00100","E": "00101",
     "F": "00110","G": "00111","H": "01000","I": "01001","J": "01010",
@@ -60,18 +64,16 @@ binary_code = {
     "8": "101010","9": "101011",
 
     # SYMBOLS
-    ".": "101100",
-    ",": "101101",
-    "!": "101110",
-    "?": "101111",
-    "&": "110000",
+    ".": "101100", ",": "101101", "!": "101110",
+    "?": "101111", "&": "110000",
 
     # SPACE
     " ": "000000"
 }
 
+
 # =========================
-# ЛОГІКА
+# ЛОГІКА ПЕРЕТВОРЕННЯ
 # =========================
 def text_to_bits(text):
     bits = ""
@@ -125,15 +127,11 @@ def generate_image(horizontal_text, vertical_text, active_color):
     # Решітка
     for x in range(total_width + 1):
         ax.plot([x, x], [0, total_height],
-                color=GRID_COLOR,
-                alpha=GRID_ALPHA,
-                linewidth=GRID_WIDTH)
+                color=GRID_COLOR, alpha=GRID_ALPHA, linewidth=GRID_WIDTH)
 
     for y in range(total_height + 1):
         ax.plot([0, total_width], [y, y],
-                color=GRID_COLOR,
-                alpha=GRID_ALPHA,
-                linewidth=GRID_WIDTH)
+                color=GRID_COLOR, alpha=GRID_ALPHA, linewidth=GRID_WIDTH)
 
     # Активні лінії
     for r in range(height):
@@ -170,24 +168,35 @@ def generate_image(horizontal_text, vertical_text, active_color):
 # TELEGRAM ЛОГІКА
 # =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[KeyboardButton("🚀 Старт")]]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
     context.user_data.clear()
 
+    keyboard = [
+        [InlineKeyboardButton("🚀 Створити візерунок", callback_data="create")],
+        [InlineKeyboardButton("🧠 Як це працює?", callback_data="how")]
+    ]
+
     await update.message.reply_text(
-        "Привіт 👋 Натисни кнопку щоб почати:",
-        reply_markup=reply_markup
+        WELCOME_TEXT,
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
+
+async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "how":
+        await query.message.reply_text(HOW_IT_WORKS_TEXT)
+        return
+
+    if query.data == "create":
+        context.user_data["step"] = "horizontal"
+        await query.message.reply_text("Введи горизонтальний текст:")
+        return
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
-
-    if text in ["🚀 Старт", "🔁 Знову"]:
-        context.user_data["step"] = "horizontal"
-        await update.message.reply_text("Введи горизонтальний текст:")
-        return
 
     if context.user_data.get("step") == "horizontal":
         context.user_data["horizontal"] = text
@@ -227,6 +236,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 resize_keyboard=True
             )
         )
+        context.user_data.clear()
 
 
 async def handle_color(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -251,6 +261,7 @@ async def handle_color(update: Update, context: ContextTypes.DEFAULT_TYPE):
             resize_keyboard=True
         )
     )
+    context.user_data.clear()
 
 
 # =========================
@@ -263,8 +274,9 @@ def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(CallbackQueryHandler(handle_menu, pattern="^(create|how)$"))
     app.add_handler(CallbackQueryHandler(handle_color))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     print("Bot is running...")
     app.run_polling()
