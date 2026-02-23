@@ -1,11 +1,13 @@
 import os
+import random
+import string
 import matplotlib.pyplot as plt
 from telegram import (
     Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
     ReplyKeyboardMarkup,
     KeyboardButton,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
 )
 from telegram.ext import (
     ApplicationBuilder,
@@ -18,16 +20,8 @@ from telegram.ext import (
 
 from texts import WELCOME_TEXT, HOW_IT_WORKS_TEXT
 
-
-# =========================
-# TOKEN береться з Railway Variables
-# =========================
 TOKEN = os.getenv("TOKEN")
 
-
-# =========================
-# НАЛАШТУВАННЯ
-# =========================
 ACTIVE_WIDTH = 2.5
 GRID_COLOR = "gray"
 GRID_ALPHA = 0.25
@@ -36,44 +30,32 @@ MARGIN = 1
 
 
 # =========================
+# ПОСТІЙНЕ МЕНЮ
+# =========================
+def persistent_menu():
+    keyboard = [
+        [KeyboardButton("🚀 Створити візерунок")],
+        [KeyboardButton("🎲 Випадковий узор")],
+        [KeyboardButton("🧠 Як це працює?")]
+    ]
+    return ReplyKeyboardMarkup(
+        keyboard,
+        resize_keyboard=True,
+        is_persistent=True
+    )
+
+
+# =========================
 # БІНАРНА ТАБЛИЦЯ
 # =========================
 binary_code = {
-    # LATIN
-    "A": "00001","B": "00010","C": "00011","D": "00100","E": "00101",
-    "F": "00110","G": "00111","H": "01000","I": "01001","J": "01010",
-    "K": "01011","L": "01100","M": "01101","N": "01110","O": "01111",
-    "P": "10000","Q": "10001","R": "10010","S": "10011","T": "10100",
-    "U": "10101","V": "10110","W": "10111","X": "11000","Y": "11001",
-    "Z": "11010",
-
-    # CYRILLIC
-    "А": "000001","Б": "000010","В": "000011","Г": "000100",
-    "Ґ": "000101","Д": "000110","Е": "000111","Є": "001000",
-    "Ж": "001001","З": "001010","И": "001011","І": "001100",
-    "Ї": "001101","Й": "001110","К": "001111","Л": "010000",
-    "М": "010001","Н": "010010","О": "010011","П": "010100",
-    "Р": "010101","С": "010110","Т": "010111","У": "011000",
-    "Ф": "011001","Х": "011010","Ц": "011011","Ч": "011100",
-    "Ш": "011101","Щ": "011110","Ь": "011111","Ю": "100000",
-    "Я": "100001",
-
-    # NUMBERS
-    "0": "100010","1": "100011","2": "100100","3": "100101",
-    "4": "100110","5": "100111","6": "101000","7": "101001",
-    "8": "101010","9": "101011",
-
-    # SYMBOLS
-    ".": "101100", ",": "101101", "!": "101110",
-    "?": "101111", "&": "110000",
-
-    # SPACE
-    " ": "000000"
+    **{c: format(i+1, "05b") for i, c in enumerate(string.ascii_uppercase)},
+    " ": "00000"
 }
 
 
 # =========================
-# ЛОГІКА ПЕРЕТВОРЕННЯ
+# ЛОГІКА
 # =========================
 def text_to_bits(text):
     bits = ""
@@ -97,7 +79,7 @@ def build_horizontal(bits, width):
 
 
 def build_vertical(bits, height):
-    matrix = [[0] * len(bits) for _ in range(height)]
+    matrix = [[0]*len(bits) for _ in range(height)]
     for col, bit in enumerate(bits):
         current = int(bit)
         for row in range(height):
@@ -109,7 +91,8 @@ def build_vertical(bits, height):
 # =========================
 # ГЕНЕРАЦІЯ ЗОБРАЖЕННЯ
 # =========================
-def generate_image(horizontal_text, vertical_text, active_color):
+def generate_image(horizontal_text, vertical_text, active_color, with_label):
+
     h_bits = text_to_bits(horizontal_text)
     v_bits = text_to_bits(vertical_text)
 
@@ -119,46 +102,55 @@ def generate_image(horizontal_text, vertical_text, active_color):
     H = build_horizontal(h_bits or "0"*5, width)
     V = build_vertical(v_bits or "0"*5, height)
 
-    total_height = height + 2 * MARGIN
-    total_width = width + 2 * MARGIN
+    extra_space = 2 if with_label else 0
 
-    fig, ax = plt.subplots(figsize=(8, 8))
+    total_height = height + 2*MARGIN + extra_space
+    total_width = width + 2*MARGIN
 
-    # Решітка
-    for x in range(total_width + 1):
-        ax.plot([x, x], [0, total_height],
-                color=GRID_COLOR, alpha=GRID_ALPHA, linewidth=GRID_WIDTH)
+    fig, ax = plt.subplots(figsize=(8,8))
 
-    for y in range(total_height + 1):
-        ax.plot([0, total_width], [y, y],
-                color=GRID_COLOR, alpha=GRID_ALPHA, linewidth=GRID_WIDTH)
+    # Сітка
+    for x in range(total_width+1):
+        ax.plot([x,x],[extra_space,total_height],
+                color=GRID_COLOR,alpha=GRID_ALPHA,linewidth=GRID_WIDTH)
 
-    # Активні лінії
+    for y in range(extra_space, total_height+1):
+        ax.plot([0,total_width],[y,y],
+                color=GRID_COLOR,alpha=GRID_ALPHA,linewidth=GRID_WIDTH)
+
+    # Лінії
     for r in range(height):
         for c in range(width):
-            draw_x = c + MARGIN
-            draw_y = height - r - 1 + MARGIN
+            draw_x = c+MARGIN
+            draw_y = height-r-1+MARGIN+extra_space
 
-            if H[r][c] == 1:
-                ax.plot([draw_x, draw_x + 1],
-                        [draw_y, draw_y],
-                        color=active_color,
-                        linewidth=ACTIVE_WIDTH)
+            if H[r][c]==1:
+                ax.plot([draw_x,draw_x+1],[draw_y,draw_y],
+                        color=active_color,linewidth=ACTIVE_WIDTH)
 
-            if V[r][c] == 1:
-                ax.plot([draw_x + 1, draw_x + 1],
-                        [draw_y, draw_y + 1],
-                        color=active_color,
-                        linewidth=ACTIVE_WIDTH)
+            if V[r][c]==1:
+                ax.plot([draw_x+1,draw_x+1],[draw_y,draw_y+1],
+                        color=active_color,linewidth=ACTIVE_WIDTH)
 
-    ax.set_xlim(0, total_width)
-    ax.set_ylim(0, total_height)
+    # Підпис
+    if with_label:
+        label = f"H: {horizontal_text} | V: {vertical_text}"
+        ax.text(
+            total_width/2,
+            0.8,
+            label,
+            ha="center",
+            fontsize=10
+        )
+
+    ax.set_xlim(0,total_width)
+    ax.set_ylim(0,total_height)
     ax.set_xticks([])
     ax.set_yticks([])
-    ax.set_aspect('equal')
+    ax.set_aspect("equal")
 
-    filename = "pattern.png"
-    fig.savefig(filename, dpi=300)
+    filename="pattern.png"
+    fig.savefig(filename,dpi=300,bbox_inches="tight")
     plt.close(fig)
 
     return filename
@@ -169,98 +161,90 @@ def generate_image(horizontal_text, vertical_text, active_color):
 # =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
-
-    keyboard = [
-        [InlineKeyboardButton("🚀 Створити візерунок", callback_data="create")],
-        [InlineKeyboardButton("🧠 Як це працює?", callback_data="how")]
-    ]
-
     await update.message.reply_text(
         WELCOME_TEXT,
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=persistent_menu()
     )
-
-
-async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    if query.data == "how":
-        await query.message.reply_text(HOW_IT_WORKS_TEXT)
-        return
-
-    if query.data == "create":
-        context.user_data["step"] = "horizontal"
-        await query.message.reply_text("Введи горизонтальний текст:")
-        return
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
-    if context.user_data.get("step") == "horizontal":
+    if text == "🧠 Як це працює?":
+        context.user_data.clear()
+        await update.message.reply_text(
+            HOW_IT_WORKS_TEXT,
+            reply_markup=persistent_menu()
+        )
+        return
+
+    if text == "🎲 Випадковий узор":
+        context.user_data["horizontal"] = ''.join(random.choices(string.ascii_uppercase, k=4))
+        context.user_data["vertical"] = ''.join(random.choices(string.ascii_uppercase, k=4))
+        context.user_data["step"] = "label_choice"
+    elif text == "🚀 Створити візерунок":
+        context.user_data.clear()
+        context.user_data["step"] = "horizontal"
+        await update.message.reply_text("Введи горизонтальний текст:")
+        return
+    elif context.user_data.get("step") == "horizontal":
         context.user_data["horizontal"] = text
         context.user_data["step"] = "vertical"
         await update.message.reply_text("Тепер введи вертикальний текст:")
         return
-
-    if context.user_data.get("step") == "vertical":
+    elif context.user_data.get("step") == "vertical":
         context.user_data["vertical"] = text
-        context.user_data["step"] = "color"
+        context.user_data["step"] = "label_choice"
+    else:
+        return
+
+    # Вибір підпису
+    keyboard = [
+        [InlineKeyboardButton("🏷 З підписом", callback_data="label_yes")],
+        [InlineKeyboardButton("🚫 Без підпису", callback_data="label_no")]
+    ]
+
+    await update.message.reply_text(
+        "Додати підпис внизу з використаними словами?",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+
+    if data.startswith("label_"):
+        context.user_data["with_label"] = data == "label_yes"
 
         keyboard = [
             [InlineKeyboardButton("⚫ Black", callback_data="black"),
              InlineKeyboardButton("🔴 Red", callback_data="red")],
             [InlineKeyboardButton("🔵 Blue", callback_data="blue"),
              InlineKeyboardButton("🟢 Green", callback_data="green")],
-            [InlineKeyboardButton("🎨 Свій HEX", callback_data="hex")]
         ]
 
-        await update.message.reply_text(
+        await query.message.reply_text(
             "Обери колір:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
 
-    if context.user_data.get("step") == "hex":
-        filename = generate_image(
-            context.user_data["horizontal"],
-            context.user_data["vertical"],
-            text.strip()
-        )
-
-        await update.message.reply_photo(
-            photo=open(filename, "rb"),
-            reply_markup=ReplyKeyboardMarkup(
-                [[KeyboardButton("🔁 Знову")]],
-                resize_keyboard=True
-            )
-        )
-        context.user_data.clear()
-
-
-async def handle_color(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    if query.data == "hex":
-        context.user_data["step"] = "hex"
-        await query.message.reply_text("Введи HEX колір (наприклад #FF00AA):")
-        return
-
+    # Генерація
     filename = generate_image(
         context.user_data["horizontal"],
         context.user_data["vertical"],
-        query.data
+        data,
+        context.user_data.get("with_label", False)
     )
 
     await query.message.reply_photo(
-        photo=open(filename, "rb"),
-        reply_markup=ReplyKeyboardMarkup(
-            [[KeyboardButton("🔁 Знову")]],
-            resize_keyboard=True
-        )
+        photo=open(filename,"rb"),
+        reply_markup=persistent_menu()
     )
+
     context.user_data.clear()
 
 
@@ -269,16 +253,15 @@ async def handle_color(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================
 def main():
     if not TOKEN:
-        raise ValueError("TOKEN не знайдено. Додай його у Railway Variables.")
+        raise ValueError("TOKEN не знайдено.")
 
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(handle_menu, pattern="^(create|how)$"))
-    app.add_handler(CallbackQueryHandler(handle_color))
+    app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    print("Bot is running...")
+    print("Bot running...")
     app.run_polling()
 
 
