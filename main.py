@@ -47,7 +47,7 @@ def persistent_menu():
 
 
 # =========================
-# КОДУВАННЯ
+# КОДУВАННЯ (8-bit Unicode)
 # =========================
 def text_to_bits(text):
     bits = ""
@@ -80,12 +80,17 @@ def build_vertical(bits, height):
 
 
 # =========================
-# ГЕНЕРАЦІЯ
+# ГЕНЕРАЦІЯ ЗАХИЩЕНА ВІД TELEGRAM LIMIT
 # =========================
 def generate_image(horizontal_text, vertical_text, color, with_label, hd=False):
 
     h_bits = text_to_bits(horizontal_text)
     v_bits = text_to_bits(vertical_text)
+
+    # 🔒 Обмеження довжини щоб Telegram не падав
+    MAX_BITS = 120
+    h_bits = h_bits[:MAX_BITS]
+    v_bits = v_bits[:MAX_BITS]
 
     height = len(h_bits) if h_bits else 8
     width = len(v_bits) if v_bits else 8
@@ -97,18 +102,24 @@ def generate_image(horizontal_text, vertical_text, color, with_label, hd=False):
     total_height = height + 2 * MARGIN + extra_space
     total_width = width + 2 * MARGIN
 
-    if hd:
-        figsize = (15, 15)
-        dpi = 600
-        line_width = 4
-        font_size = 20
-        filename = "pattern_hd.png"
+    # 🔥 Динамічне масштабування
+    max_side = max(total_width, total_height)
+
+    if max_side > 100:
+        scale = 0.15
     else:
-        figsize = (8, 8)
-        dpi = 300
-        line_width = ACTIVE_WIDTH
-        font_size = 10
-        filename = "pattern.png"
+        scale = 0.25
+
+    figsize = (
+        max(total_width * scale, 6),
+        max(total_height * scale, 6)
+    )
+
+    dpi = 300 if hd else 200
+    line_width = 3 if hd else ACTIVE_WIDTH
+    font_size = 14 if hd else 10
+
+    filename = "pattern.png"
 
     fig, ax = plt.subplots(figsize=figsize)
 
@@ -177,7 +188,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     lower = text.lower()
 
-    # 🔥 МАГІЧНЕ СЛОВО
+    # 🔥 Магічне слово
     if lower == MAGIC_WORD:
         context.user_data.clear()
         await update.message.reply_text(
