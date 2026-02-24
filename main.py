@@ -189,13 +189,18 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lower = text.lower()
 
     # 🔥 Магічне слово
-    if lower == MAGIC_WORD:
-        context.user_data.clear()
-        await update.message.reply_text(
-            "🧵 Режим Sashiko активовано.",
-            reply_markup=persistent_menu()
-        )
-        return
+if lower == MAGIC_WORD:
+    context.user_data.clear()
+
+    keyboard = [
+        [InlineKeyboardButton("✨ Почати творити", callback_data="enter_creator")]
+    ]
+
+    await update.message.reply_text(
+        HOW_IT_WORKS_TEXT,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return
 
     if text == "🧠 Як це працює?":
         await update.message.reply_text(
