@@ -1,5 +1,6 @@
 import os
 import uuid
+import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 
@@ -30,8 +31,9 @@ THREAD_COLORS = {
 }
 
 FABRICS = {
-    "Білий льон": "#F0F0E6",
-    "Натуральний льон": "#DEC8A0",
+    "Білий льон": "#F2F1E8",
+    "Натуральний льон": "#DCC9A6",
+    "Джинс": "#2F4F6F"
 }
 
 binary_code = {
@@ -45,6 +47,10 @@ binary_code = {
 
 MARGIN = 1
 
+
+# =============================
+# BINARY LOGIC
+# =============================
 
 def text_to_bits(text):
     bits = ""
@@ -77,6 +83,10 @@ def build_vertical(bits, height):
     return matrix
 
 
+# =============================
+# GENERATOR
+# =============================
+
 def generate_pattern(horizontal_text, vertical_text, mode, thread=None, fabric=None):
 
     h_bits = text_to_bits(horizontal_text)
@@ -91,12 +101,49 @@ def generate_pattern(horizontal_text, vertical_text, mode, thread=None, fabric=N
     total_height = height + 2*MARGIN
     total_width = width + 2*MARGIN
 
-    fig, ax = plt.subplots(figsize=(8, 8))
+    # A3 format for poster
+    if mode == "poster":
+        fig, ax = plt.subplots(figsize=(11.7, 16.5))
+    else:
+        fig, ax = plt.subplots(figsize=(8, 8))
+
+    # =============================
+    # TEXTURE
+    # =============================
 
     if mode == "poster":
         ax.set_facecolor(fabric)
 
+        if fabric == "#2F4F6F":  # Denim
+            noise = np.random.normal(0, 0.15, (1400, 1000))
+            ax.imshow(
+                noise,
+                cmap="gray",
+                extent=[0, total_width, 0, total_height],
+                alpha=0.15
+            )
+
+            for i in range(200):
+                ax.plot(
+                    [i * total_width / 200, i * total_width / 200],
+                    [0, total_height],
+                    color="white",
+                    alpha=0.02,
+                    linewidth=1
+                )
+        else:
+            noise = np.random.normal(0, 0.02, (1200, 900))
+            ax.imshow(
+                noise,
+                cmap="gray",
+                extent=[0, total_width, 0, total_height],
+                alpha=0.08
+            )
+
+    # =============================
     # GRID
+    # =============================
+
     for x in range(total_width + 1):
         ax.plot([x, x], [0, total_height],
                 color="gray", alpha=0.25, linewidth=0.6)
@@ -126,23 +173,35 @@ def generate_pattern(horizontal_text, vertical_text, mode, thread=None, fabric=N
                         linewidth=2.5)
 
     # =============================
-    # ПОСТЕР ДОДАТКОВІ ЕЛЕМЕНТИ
+    # POSTER DESIGN
     # =============================
+
     if mode == "poster":
 
-        # РАМКА
+        # Outer frame
         ax.add_patch(
             plt.Rectangle(
-                (0.5, 0.5),
-                total_width - 1,
-                total_height - 1,
+                (0, 0),
+                total_width,
+                total_height,
                 fill=False,
                 edgecolor=thread,
-                linewidth=6
+                linewidth=12
             )
         )
 
-        # ПІДПИС
+        # Inner frame
+        ax.add_patch(
+            plt.Rectangle(
+                (1.5, 1.5),
+                total_width - 3,
+                total_height - 3,
+                fill=False,
+                edgecolor=thread,
+                linewidth=3
+            )
+        )
+
         if horizontal_text.upper() == vertical_text.upper():
             label = horizontal_text.upper()
         else:
@@ -150,13 +209,14 @@ def generate_pattern(horizontal_text, vertical_text, mode, thread=None, fabric=N
 
         ax.text(
             total_width / 2,
-            -2,
+            -3,
             label,
             ha='center',
             va='center',
-            fontsize=18,
+            fontsize=36,
             color=thread,
-            fontweight='bold'
+            fontweight='light',
+            fontfamily="serif"
         )
 
     ax.set_xlim(0, total_width)
@@ -183,6 +243,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user_id = update.message.from_user.id
+
+    # Restart
+    if text == "🔁 Знову":
+        user_state[user_id] = "choose_type"
+        keyboard = [["Постер", "Схема"]]
+        await update.message.reply_text(
+            "Оберіть тип:",
+            reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        )
+        return
 
     if text.lower() == "сашіко":
         user_state[user_id] = "choose_type"
@@ -214,7 +284,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 user_data[user_id]["vertical"],
                 mode="scheme"
             )
-            await update.message.reply_photo(photo=open(filename, "rb"))
+
+            keyboard = [["🔁 Знову"]]
+            await update.message.reply_photo(
+                photo=open(filename, "rb"),
+                reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+            )
             os.remove(filename)
             user_state[user_id] = None
             return
@@ -248,9 +323,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             fabric=user_data[user_id]["fabric"]
         )
 
-        await update.message.reply_photo(photo=open(filename, "rb"))
-        os.remove(filename)
+        keyboard = [["🔁 Знову"]]
+        await update.message.reply_photo(
+            photo=open(filename, "rb"),
+            reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        )
 
+        os.remove(filename)
         user_state[user_id] = None
         user_data[user_id] = {}
         return
