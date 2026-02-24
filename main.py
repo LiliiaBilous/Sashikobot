@@ -10,9 +10,13 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 from reportlab.platypus import SimpleDocTemplate, Image as RLImage
 from reportlab.lib.pagesizes import A3
+
+# =========================
+# CONFIG
+# =========================
 
 TOKEN = os.environ.get("BOT_TOKEN")
 if not TOKEN:
@@ -22,16 +26,14 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 TEXTURES = {
     "premium_dark_indigo": os.path.join(BASE_DIR, "assets/textures/Premium_Dark_Indigo.jpg"),
-    "soft_indigo": os.path.join(BASE_DIR, "assets/textures/Soft_Indigo.avif"),
-    "natural_linen": os.path.join(BASE_DIR, "assets/textures/Natural_Linen.avif"),
+    "soft_indigo": os.path.join(BASE_DIR, "assets/textures/Soft_Indigo.jpg"),
+    "natural_linen": os.path.join(BASE_DIR, "assets/textures/Natural_Linen.jpg"),
     "artisan_linen": os.path.join(BASE_DIR, "assets/textures/Artisan_Linen.jpg"),
     "wabi_indigo": os.path.join(BASE_DIR, "assets/textures/Wabi_Indigo.png"),
 }
 
-FONT_PATH = os.path.join(BASE_DIR, "assets/fonts/DejaVuSans.ttf")
-
-CELL_SIZE = 70
-THREAD_WIDTH = 10
+CELL_SIZE = 60
+THREAD_WIDTH = 8
 
 THREAD_COLORS = {
     "white": (245, 245, 245),
@@ -58,7 +60,7 @@ STATE_WAIT_HORIZONTAL = "wait_horizontal"
 STATE_WAIT_VERTICAL = "wait_vertical"
 
 # =========================
-# UTIL
+# BINARY ENGINE
 # =========================
 
 def text_to_bits(text):
@@ -85,8 +87,8 @@ def build_vertical(bits, height):
     return matrix
 
 def draw_thread(draw, x1, y1, x2, y2, color):
-    shadow = tuple(max(c-60,0) for c in color)
-    draw.line((x1, y1+4, x2, y2+4), fill=shadow, width=THREAD_WIDTH+2)
+    shadow = tuple(max(c-50,0) for c in color)
+    draw.line((x1, y1+3, x2, y2+3), fill=shadow, width=THREAD_WIDTH+2)
     draw.line((x1, y1, x2, y2), fill=color, width=THREAD_WIDTH)
 
 # =========================
@@ -104,7 +106,7 @@ def generate_poster(horizontal, vertical, texture_key, thread_key):
     H = build_horizontal(bits_h, width)
     V = build_vertical(bits_v, height)
 
-    size = 3500
+    size = 3000
 
     try:
         bg = Image.open(TEXTURES[texture_key]).convert("RGB")
@@ -146,11 +148,11 @@ def generate_pattern_pdf(horizontal, vertical):
     H = build_horizontal(bits_h, width)
     V = build_vertical(bits_v, height)
 
-    img = Image.new("RGB", (3000,3000), "white")
+    img = Image.new("RGB", (2500,2500), "white")
     draw = ImageDraw.Draw(img)
 
-    cell = 25
-    offset = 300
+    cell = 20
+    offset = 250
 
     for r in range(height):
         for c in range(width):
@@ -158,9 +160,9 @@ def generate_pattern_pdf(horizontal, vertical):
             y = offset + (height-r-1)*cell
 
             if H[r][c] == 1:
-                draw.line((x, y, x+cell, y), fill="black", width=3)
+                draw.line((x, y, x+cell, y), fill="black", width=2)
             if V[r][c] == 1:
-                draw.line((x+cell, y, x+cell, y+cell), fill="black", width=3)
+                draw.line((x+cell, y, x+cell, y+cell), fill="black", width=2)
 
     img_path = f"pattern_{uuid.uuid4()}.png"
     pdf_path = img_path.replace(".png",".pdf")
@@ -267,7 +269,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             await update.message.reply_photo(photo=open(path,"rb"))
             os.remove(path)
-
         else:
             pdf = generate_pattern_pdf(horizontal, vertical)
             await update.message.reply_document(document=open(pdf,"rb"))
