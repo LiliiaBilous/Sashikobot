@@ -25,21 +25,44 @@ if not TOKEN:
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 TEXTURES = {
-    "premium_dark_indigo": os.path.join(BASE_DIR, "assets/textures/premium_dark_indigo.jpg"),
-    "soft_indigo": os.path.join(BASE_DIR, "assets/textures/soft_indigo.jpg"),
-    "natural_linen": os.path.join(BASE_DIR, "assets/textures/natural_linen.jpg"),
+    "premium_dark_indigo": os.path.join(BASE_DIR, "assets/textures/Premium_Dark_Indigo.jpg"),
+    "soft_indigo": os.path.join(BASE_DIR, "assets/textures/Soft_Indigo.avif"),
+    "natural_linen": os.path.join(BASE_DIR, "assets/textures/Natural_Linen.avif"),
+    "artisan_linen": os.path.join(BASE_DIR, "assets/textures/Artisan_Linen.jpg"),
+    "wabi_indigo": os.path.join(BASE_DIR, "assets/textures/Wabi_Indigo.png"),
 }
 
 FONT_PATH = os.path.join(BASE_DIR, "assets/fonts/DejaVuSans.ttf")
 
 CELL_SIZE = 70
 THREAD_WIDTH = 10
-MARGIN = 1
+
+THREAD_COLORS = {
+    "white": (245, 245, 245),
+    "gold": (212, 175, 55),
+    "red": (200, 30, 30),
+    "burgundy": (110, 20, 45),
+    "darkgreen": (20, 80, 40),
+    "black": (30, 30, 30),
+    "navy": (15, 35, 85),
+    "brown": (120, 70, 30),
+}
 
 logging.basicConfig(level=logging.INFO)
 
 # =========================
-# BINARY ENGINE (Unicode)
+# STATES
+# =========================
+
+STATE_WAIT_TRIGGER = "wait_trigger"
+STATE_CHOOSE_TYPE = "choose_type"
+STATE_CHOOSE_THREAD = "choose_thread"
+STATE_CHOOSE_TEXTURE = "choose_texture"
+STATE_WAIT_HORIZONTAL = "wait_horizontal"
+STATE_WAIT_VERTICAL = "wait_vertical"
+
+# =========================
+# BINARY ENGINE
 # =========================
 
 def text_to_bits(text):
@@ -69,15 +92,13 @@ def build_vertical(bits, height):
     return matrix
 
 # =========================
-# THREAD DRAW
+# DRAW THREAD
 # =========================
 
 def draw_thread(draw, x1, y1, x2, y2, color):
     shadow = tuple(max(c-60,0) for c in color)
     draw.line((x1, y1+4, x2, y2+4), fill=shadow, width=THREAD_WIDTH+2)
-
     draw.line((x1, y1, x2, y2), fill=color, width=THREAD_WIDTH)
-
     highlight = tuple(min(c+40,255) for c in color)
     draw.line((x1, y1-2, x2, y2-2), fill=highlight, width=3)
 
@@ -86,16 +107,14 @@ def add_white_frame(img):
     w, h = img.size
     framed = Image.new("RGB", (w+outer*2, h+outer*2), (245,245,245))
     framed.paste(img, (outer, outer))
-    draw = ImageDraw.Draw(framed)
-    draw.rectangle([outer-8, outer-8, w+outer+8, h+outer+8],
-                   outline=(220,220,220), width=8)
     return framed
 
 # =========================
-# POSTER GENERATOR
+# POSTER
 # =========================
 
-def generate_poster(horizontal_text, vertical_text, texture_key):
+def generate_poster(horizontal_text, vertical_text, texture_key, thread_key):
+
     h_bits = text_to_bits(horizontal_text)
     v_bits = text_to_bits(vertical_text)
 
@@ -106,8 +125,16 @@ def generate_poster(horizontal_text, vertical_text, texture_key):
     V = build_vertical(v_bits, height)
 
     canvas_size = 4000
-    bg = Image.open(TEXTURES[texture_key]).convert("RGB")
-    bg = bg.resize((canvas_size, canvas_size))
+
+    texture_path = TEXTURES.get(texture_key)
+
+    try:
+        bg = Image.open(texture_path).convert("RGB")
+        bg = bg.resize((canvas_size, canvas_size))
+    except Exception as e:
+        print("Texture load error:", e)
+        bg = Image.new("RGB", (canvas_size, canvas_size), (230,230,230))
+
     draw = ImageDraw.Draw(bg)
 
     pattern_w = width * CELL_SIZE
@@ -116,7 +143,7 @@ def generate_poster(horizontal_text, vertical_text, texture_key):
     offset_x = (canvas_size - pattern_w)//2
     offset_y = (canvas_size - pattern_h)//2 - 100
 
-    thread_color = (212,175,55)
+    thread_color = THREAD_COLORS.get(thread_key, (212,175,55))
 
     for r in range(height):
         for c in range(width):
@@ -132,11 +159,7 @@ def generate_poster(horizontal_text, vertical_text, texture_key):
 
     font = ImageFont.truetype(FONT_PATH, 120)
 
-    if horizontal_text.strip().lower() == vertical_text.strip().lower():
-        title = horizontal_text.upper()
-    else:
-        title = f"{horizontal_text.upper()} | {vertical_text.upper()}"
-
+    title = f"{horizontal_text.upper()} | {vertical_text.upper()}"
     bbox = draw.textbbox((0,0), title, font=font)
     text_w = bbox[2]-bbox[0]
 
@@ -156,6 +179,7 @@ def generate_poster(horizontal_text, vertical_text, texture_key):
 # =========================
 
 def generate_pattern_pdf(horizontal_text, vertical_text):
+
     h_bits = text_to_bits(horizontal_text)
     v_bits = text_to_bits(vertical_text)
 
@@ -199,66 +223,23 @@ def generate_pattern_pdf(horizontal_text, vertical_text):
     return pdf_path
 
 # =========================
-# TELEGRAM BOT
+# BOT LOGIC
 # =========================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("Premium Dark Indigo", callback_data="premium_dark_indigo")],
-        [InlineKeyboardButton("Soft Indigo", callback_data="soft_indigo")],
-        [InlineKeyboardButton("Natural Linen", callback_data="natural_linen")]
-    ]
-    await update.message.reply_text("Оберіть текстуру:", reply_markup=InlineKeyboardMarkup(keyboard))
+    context.user_data["state"] = STATE_WAIT_TRIGGER
+    await update.message.reply_text("Напишіть «сашіко», щоб почати ✨")
 
-async def texture_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    context.user_data["texture"] = query.data
-    context.user_data["step"] = "horizontal"
-    await query.edit_message_text("Введіть горизонтальний текст:")
-
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    step = context.user_data.get("step")
-
-    if step == "horizontal":
-        context.user_data["horizontal"] = update.message.text
-        context.user_data["step"] = "vertical"
-        await update.message.reply_text("Введіть вертикальний текст:")
-        return
-
-    if step == "vertical":
-        context.user_data["vertical"] = update.message.text
-
-        horizontal = context.user_data["horizontal"]
-        vertical   = context.user_data["vertical"]
-        texture    = context.user_data["texture"]
-
-        await update.message.reply_text("Генерую постер...")
-
-        poster_path = generate_poster(horizontal, vertical, texture)
-        pdf_path    = generate_pattern_pdf(horizontal, vertical)
-
-        await update.message.reply_photo(open(poster_path,"rb"))
-        await update.message.reply_document(open(pdf_path,"rb"))
-
-        os.remove(poster_path)
-        os.remove(pdf_path)
-
-        context.user_data.clear()
-
-# =========================
-# MAIN
-# =========================
-
-def main():
+async def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(texture_selected))
+    app.add_handler(CallbackQueryHandler(handle_callbacks))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    app.run_polling(drop_pending_updates=True)
+    print("Bot started...")
+    await app.run_polling()
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())
