@@ -17,8 +17,9 @@ from reportlab.lib.pagesizes import A3
 from reportlab.lib.units import inch
 
 # ---------------- SAFE TOKEN ----------------
+import os
 
-TOKEN = "8481965103:AAEzJY6vQz1OAOQqjyM7fBbB-g19AMqdNvM"
+TOKEN = os.environ.get("BOT_TOKEN")
 if not TOKEN:
     raise RuntimeError("❌ BOT_TOKEN not found in environment variables.")
 
