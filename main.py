@@ -245,6 +245,12 @@ if lower == MAGIC_WORD:
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if data == "enter_creator":
+    await query.message.reply_text(
+        "🧵 STITCH & CODE активовано.\nОбери дію:",
+        reply_markup=persistent_menu()
+    )
+    return
     query = update.callback_query
     await query.answer()
     data = query.data
