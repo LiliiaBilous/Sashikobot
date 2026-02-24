@@ -1,8 +1,6 @@
 import os
+import uuid
 import logging
-import smtplib
-from email.message import EmailMessage
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -12,215 +10,255 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+from PIL import Image, ImageDraw, ImageFont
 from reportlab.platypus import SimpleDocTemplate, Image as RLImage
 from reportlab.lib.pagesizes import A3
-from reportlab.lib.units import inch
 
-# ---------------- SAFE TOKEN ----------------
-import os
+# =========================
+# ENV
+# =========================
 
 TOKEN = os.environ.get("BOT_TOKEN")
 if not TOKEN:
-    raise RuntimeError("❌ BOT_TOKEN not found in environment variables.")
+    raise RuntimeError("BOT_TOKEN not set")
 
-EMAIL_ADDRESS = os.environ.get("EMAIL_ADDRESS")
-EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+TEXTURES = {
+    "premium_dark_indigo": os.path.join(BASE_DIR, "assets/textures/premium_dark_indigo.jpg"),
+    "soft_indigo": os.path.join(BASE_DIR, "assets/textures/soft_indigo.jpg"),
+    "natural_linen": os.path.join(BASE_DIR, "assets/textures/natural_linen.jpg"),
+}
+
+FONT_PATH = os.path.join(BASE_DIR, "assets/fonts/DejaVuSans.ttf")
+
+CELL_SIZE = 70
+THREAD_WIDTH = 10
+MARGIN = 1
 
 logging.basicConfig(level=logging.INFO)
 
-TEXTURES = {
-    "premium_dark_indigo": "assets/textures/premium_dark_indigo.jpg",
-    "soft_indigo": "assets/textures/soft_indigo.jpg",
-    "natural_linen": "assets/textures/natural_linen.jpg",
-}
+# =========================
+# BINARY ENGINE (Unicode)
+# =========================
 
-COLORS = {
-    "white": (245, 245, 245),
-    "gold": (212, 175, 55),
-    "red": (180, 30, 30),
-    "black": (30, 30, 30),
-}
+def text_to_bits(text):
+    bits = ""
+    for char in text:
+        bits += format(ord(char), "08b")
+    return bits
 
-FONT_PATH = "assets/fonts/PlayfairDisplay-Bold.ttf"
+def alternating(start_bit, length):
+    row = []
+    current = int(start_bit)
+    for _ in range(length):
+        row.append(current)
+        current = 1 - current
+    return row
 
-# ---------------- START ----------------
+def build_horizontal(bits, width):
+    return [alternating(bit, width) for bit in bits]
+
+def build_vertical(bits, height):
+    matrix = [[0]*len(bits) for _ in range(height)]
+    for col, bit in enumerate(bits):
+        current = int(bit)
+        for row in range(height):
+            matrix[row][col] = current
+            current = 1 - current
+    return matrix
+
+# =========================
+# THREAD DRAW
+# =========================
+
+def draw_thread(draw, x1, y1, x2, y2, color):
+    shadow = tuple(max(c-60,0) for c in color)
+    draw.line((x1, y1+4, x2, y2+4), fill=shadow, width=THREAD_WIDTH+2)
+
+    draw.line((x1, y1, x2, y2), fill=color, width=THREAD_WIDTH)
+
+    highlight = tuple(min(c+40,255) for c in color)
+    draw.line((x1, y1-2, x2, y2-2), fill=highlight, width=3)
+
+def add_white_frame(img):
+    outer = 250
+    w, h = img.size
+    framed = Image.new("RGB", (w+outer*2, h+outer*2), (245,245,245))
+    framed.paste(img, (outer, outer))
+    draw = ImageDraw.Draw(framed)
+    draw.rectangle([outer-8, outer-8, w+outer+8, h+outer+8],
+                   outline=(220,220,220), width=8)
+    return framed
+
+# =========================
+# POSTER GENERATOR
+# =========================
+
+def generate_poster(horizontal_text, vertical_text, texture_key):
+    h_bits = text_to_bits(horizontal_text)
+    v_bits = text_to_bits(vertical_text)
+
+    height = len(h_bits)
+    width  = len(v_bits)
+
+    H = build_horizontal(h_bits, width)
+    V = build_vertical(v_bits, height)
+
+    canvas_size = 4000
+    bg = Image.open(TEXTURES[texture_key]).convert("RGB")
+    bg = bg.resize((canvas_size, canvas_size))
+    draw = ImageDraw.Draw(bg)
+
+    pattern_w = width * CELL_SIZE
+    pattern_h = height * CELL_SIZE
+
+    offset_x = (canvas_size - pattern_w)//2
+    offset_y = (canvas_size - pattern_h)//2 - 100
+
+    thread_color = (212,175,55)
+
+    for r in range(height):
+        for c in range(width):
+
+            x = offset_x + c*CELL_SIZE
+            y = offset_y + (height-r-1)*CELL_SIZE
+
+            if H[r][c] == 1:
+                draw_thread(draw, x, y, x+CELL_SIZE, y, thread_color)
+
+            if V[r][c] == 1:
+                draw_thread(draw, x+CELL_SIZE, y, x+CELL_SIZE, y+CELL_SIZE, thread_color)
+
+    font = ImageFont.truetype(FONT_PATH, 120)
+
+    if horizontal_text.strip().lower() == vertical_text.strip().lower():
+        title = horizontal_text.upper()
+    else:
+        title = f"{horizontal_text.upper()} | {vertical_text.upper()}"
+
+    bbox = draw.textbbox((0,0), title, font=font)
+    text_w = bbox[2]-bbox[0]
+
+    draw.text(((canvas_size-text_w)//2, canvas_size-350),
+              title, fill=(40,40,40), font=font)
+
+    framed = add_white_frame(bg)
+
+    file_id = str(uuid.uuid4())
+    output_path = f"poster_{file_id}.jpg"
+    framed.save(output_path, quality=95)
+
+    return output_path
+
+# =========================
+# PATTERN PDF
+# =========================
+
+def generate_pattern_pdf(horizontal_text, vertical_text):
+    h_bits = text_to_bits(horizontal_text)
+    v_bits = text_to_bits(vertical_text)
+
+    height = len(h_bits)
+    width  = len(v_bits)
+
+    H = build_horizontal(h_bits, width)
+    V = build_vertical(v_bits, height)
+
+    img_size = 3500
+    img = Image.new("RGB", (img_size, img_size), "white")
+    draw = ImageDraw.Draw(img)
+
+    cell = 25
+    offset = 300
+
+    for r in range(height):
+        for c in range(width):
+
+            x = offset + c*cell
+            y = offset + (height-r-1)*cell
+
+            if H[r][c] == 1:
+                draw.line((x, y, x+cell, y), fill="black", width=3)
+
+            if V[r][c] == 1:
+                draw.line((x+cell, y, x+cell, y+cell), fill="black", width=3)
+
+    file_id = str(uuid.uuid4())
+    img_path = f"pattern_{file_id}.png"
+    pdf_path = f"pattern_{file_id}.pdf"
+
+    img.save(img_path)
+
+    doc = SimpleDocTemplate(pdf_path, pagesize=A3)
+    elements = [RLImage(img_path, width=A3[0], height=A3[1])]
+    doc.build(elements)
+
+    os.remove(img_path)
+
+    return pdf_path
+
+# =========================
+# TELEGRAM BOT
+# =========================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🧵 SASHIKO ART BOT\n\n"
-        "1️⃣ Оберіть тканину\n"
-        "2️⃣ Оберіть стиль\n"
-        "3️⃣ Оберіть колір\n"
-        "4️⃣ Введіть текст\n\n"
-        "Отримаєте HQ постер + PDF для друку"
-    )
-
-# ---------------- TEXTURE ----------------
+    keyboard = [
+        [InlineKeyboardButton("Premium Dark Indigo", callback_data="premium_dark_indigo")],
+        [InlineKeyboardButton("Soft Indigo", callback_data="soft_indigo")],
+        [InlineKeyboardButton("Natural Linen", callback_data="natural_linen")]
+    ]
+    await update.message.reply_text("Оберіть текстуру:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def texture_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     context.user_data["texture"] = query.data
-
-    keyboard = [
-        [InlineKeyboardButton("🪡 Artisan", callback_data="mode_artisan")],
-        [InlineKeyboardButton("🧘 Zen", callback_data="mode_zen")],
-    ]
-
-    await query.edit_message_text("Оберіть стиль:", reply_markup=InlineKeyboardMarkup(keyboard))
-
-# ---------------- MODE ----------------
-
-async def mode_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    context.user_data["mode"] = query.data.replace("mode_", "")
-
-    keyboard = [
-        [InlineKeyboardButton("White", callback_data="color_white")],
-        [InlineKeyboardButton("Gold", callback_data="color_gold")],
-        [InlineKeyboardButton("Red", callback_data="color_red")],
-        [InlineKeyboardButton("Black", callback_data="color_black")],
-    ]
-
-    await query.edit_message_text("Оберіть колір нитки:", reply_markup=InlineKeyboardMarkup(keyboard))
-
-# ---------------- COLOR ----------------
-
-async def color_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    context.user_data["color"] = COLORS[query.data.replace("color_", "")]
-    context.user_data["awaiting_text"] = True
-
-    await query.edit_message_text("Введіть текст для постера:")
-
-# ---------------- STITCH EFFECT ----------------
-
-def draw_stitch(draw, position, text, font, color):
-    x, y = position
-    shadow = tuple(max(c - 50, 0) for c in color)
-
-    # lower stitch
-    draw.text((x+4, y+4), text, font=font, fill=shadow)
-    # main stitch
-    draw.text((x, y), text, font=font, fill=color)
-
-# ---------------- FRAME ----------------
-
-def add_gallery_frame(image):
-    border = 120
-    framed = Image.new("RGB", (image.width + border*2, image.height + border*2), (255,255,255))
-    framed.paste(image, (border, border))
-    return framed
-
-# ---------------- PDF ----------------
-
-def create_pdf(image_path):
-    pdf_path = "poster_print_A3.pdf"
-    doc = SimpleDocTemplate(pdf_path, pagesize=A3)
-    elements = []
-
-    img = RLImage(image_path, width=16*inch, height=16*inch)
-    elements.append(img)
-    doc.build(elements)
-
-    return pdf_path
-
-# ---------------- GENERATE ----------------
+    context.user_data["step"] = "horizontal"
+    await query.edit_message_text("Введіть горизонтальний текст:")
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    if not context.user_data.get("awaiting_text"):
+    step = context.user_data.get("step")
+
+    if step == "horizontal":
+        context.user_data["horizontal"] = update.message.text
+        context.user_data["step"] = "vertical"
+        await update.message.reply_text("Введіть вертикальний текст:")
         return
 
-    text = update.message.text
-    texture = TEXTURES[context.user_data["texture"]]
-    mode = context.user_data["mode"]
-    color = context.user_data["color"]
+    if step == "vertical":
+        context.user_data["vertical"] = update.message.text
 
-    base = Image.open(texture).convert("RGB").resize((3000, 3000))
-    draw = ImageDraw.Draw(base)
+        horizontal = context.user_data["horizontal"]
+        vertical   = context.user_data["vertical"]
+        texture    = context.user_data["texture"]
 
-    font = ImageFont.truetype(FONT_PATH, 260)
-    bbox = draw.textbbox((0,0), text, font=font)
-    w = bbox[2]-bbox[0]
-    h = bbox[3]-bbox[1]
+        await update.message.reply_text("Генерую постер...")
 
-    x = (3000 - w)//2
-    y = (3000 - h)//2
+        poster_path = generate_poster(horizontal, vertical, texture)
+        pdf_path    = generate_pattern_pdf(horizontal, vertical)
 
-    if mode == "artisan":
-        draw_stitch(draw, (x,y), text, font, color)
-        base = base.filter(ImageFilter.GaussianBlur(0.3))
-    else:
-        draw.text((x,y), text, font=font, fill=color)
+        await update.message.reply_photo(open(poster_path,"rb"))
+        await update.message.reply_document(open(pdf_path,"rb"))
 
-    base = add_gallery_frame(base)
+        os.remove(poster_path)
+        os.remove(pdf_path)
 
-    jpg_path = "poster_hq.jpg"
-    base.save(jpg_path, quality=100)
+        context.user_data.clear()
 
-    pdf_path = create_pdf(jpg_path)
-
-    context.user_data["jpg"] = jpg_path
-    context.user_data["pdf"] = pdf_path
-    context.user_data["awaiting_text"] = False
-
-    await update.message.reply_photo(open(jpg_path,"rb"))
-    await update.message.reply_document(open(pdf_path,"rb"))
-
-    if EMAIL_ADDRESS and EMAIL_PASSWORD:
-        keyboard = [[InlineKeyboardButton("📩 Надіслати на Email", callback_data="send_email")]]
-        await update.message.reply_text("Надіслати файл на пошту?", reply_markup=InlineKeyboardMarkup(keyboard))
-
-# ---------------- EMAIL ----------------
-
-async def send_email_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    context.user_data["awaiting_email"] = True
-    await query.edit_message_text("Введіть email:")
-
-async def send_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.user_data.get("awaiting_email"):
-        return
-
-    email = update.message.text
-    msg = EmailMessage()
-    msg["Subject"] = "Ваш Sashiko Poster"
-    msg["From"] = EMAIL_ADDRESS
-    msg["To"] = email
-    msg.set_content("Ваші файли у вкладенні.")
-
-    for file in ["poster_hq.jpg", "poster_print_A3.pdf"]:
-        with open(file,"rb") as f:
-            msg.add_attachment(f.read(), maintype="application", subtype="octet-stream", filename=file)
-
-    with smtplib.SMTP("smtp.gmail.com", 587) as server:
-        server.starttls()
-        server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
-        server.send_message(msg)
-
-    context.user_data["awaiting_email"] = False
-    await update.message.reply_text("✅ Надіслано!")
-
-# ---------------- MAIN ----------------
+# =========================
+# MAIN
+# =========================
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(texture_selected))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    app.add_handler(CallbackQueryHandler(texture_selected, pattern="^(premium_dark_indigo|soft_indigo|natural_linen)$"))
-    app.add_handler(CallbackQueryHandler(mode_selected, pattern="^mode_"))
-    app.add_handler(CallbackQueryHandler(color_selected, pattern="^color_"))
-    app.add_handler(CallbackQueryHandler(send_email_button, pattern="send_email"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, send_email))
-
-    app.run_polling()
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
