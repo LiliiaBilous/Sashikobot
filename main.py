@@ -47,7 +47,7 @@ def persistent_menu():
 
 
 # =========================
-# КОДУВАННЯ (8-bit Unicode)
+# КОДУВАННЯ
 # =========================
 def text_to_bits(text):
     bits = ""
@@ -80,14 +80,13 @@ def build_vertical(bits, height):
 
 
 # =========================
-# ГЕНЕРАЦІЯ ЗАХИЩЕНА ВІД TELEGRAM LIMIT
+# ГЕНЕРАЦІЯ
 # =========================
 def generate_image(horizontal_text, vertical_text, color, with_label, hd=False):
 
     h_bits = text_to_bits(horizontal_text)
     v_bits = text_to_bits(vertical_text)
 
-    # 🔒 Обмеження довжини щоб Telegram не падав
     MAX_BITS = 120
     h_bits = h_bits[:MAX_BITS]
     v_bits = v_bits[:MAX_BITS]
@@ -102,13 +101,8 @@ def generate_image(horizontal_text, vertical_text, color, with_label, hd=False):
     total_height = height + 2 * MARGIN + extra_space
     total_width = width + 2 * MARGIN
 
-    # 🔥 Динамічне масштабування
     max_side = max(total_width, total_height)
-
-    if max_side > 100:
-        scale = 0.15
-    else:
-        scale = 0.25
+    scale = 0.15 if max_side > 100 else 0.25
 
     figsize = (
         max(total_width * scale, 6),
@@ -123,7 +117,6 @@ def generate_image(horizontal_text, vertical_text, color, with_label, hd=False):
 
     fig, ax = plt.subplots(figsize=figsize)
 
-    # Сітка
     for x in range(total_width + 1):
         ax.plot([x, x], [extra_space, total_height],
                 color=GRID_COLOR, alpha=GRID_ALPHA, linewidth=GRID_WIDTH)
@@ -132,7 +125,6 @@ def generate_image(horizontal_text, vertical_text, color, with_label, hd=False):
         ax.plot([0, total_width], [y, y],
                 color=GRID_COLOR, alpha=GRID_ALPHA, linewidth=GRID_WIDTH)
 
-    # Лінії
     for r in range(height):
         for c in range(width):
             draw_x = c + MARGIN
@@ -146,7 +138,6 @@ def generate_image(horizontal_text, vertical_text, color, with_label, hd=False):
                 ax.plot([draw_x + 1, draw_x + 1], [draw_y, draw_y + 1],
                         color=color, linewidth=line_width)
 
-    # ПІДПИС
     if with_label:
         if horizontal_text == vertical_text:
             label = horizontal_text
@@ -189,18 +180,18 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lower = text.lower()
 
     # 🔥 Магічне слово
-if lower == MAGIC_WORD:
-    context.user_data.clear()
+    if lower == MAGIC_WORD:
+        context.user_data.clear()
 
-    keyboard = [
-        [InlineKeyboardButton("✨ Почати творити", callback_data="enter_creator")]
-    ]
+        keyboard = [
+            [InlineKeyboardButton("✨ Почати творити", callback_data="enter_creator")]
+        ]
 
-    await update.message.reply_text(
-        HOW_IT_WORKS_TEXT,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-    return
+        await update.message.reply_text(
+            HOW_IT_WORKS_TEXT,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
 
     if text == "🧠 Як це працює?":
         await update.message.reply_text(
@@ -245,15 +236,16 @@ if lower == MAGIC_WORD:
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if data == "enter_creator":
-    await query.message.reply_text(
-        "🧵 STITCH & CODE активовано.\nОбери дію:",
-        reply_markup=persistent_menu()
-    )
-    return
     query = update.callback_query
     await query.answer()
     data = query.data
+
+    if data == "enter_creator":
+        await query.message.reply_text(
+            "🧵 STITCH & CODE активовано.\nОбери дію:",
+            reply_markup=persistent_menu()
+        )
+        return
 
     if data.startswith("label_"):
         context.user_data["with_label"] = data == "label_yes"
