@@ -1,12 +1,12 @@
 import os
-import random
-import matplotlib.pyplot as plt
+import logging
+import smtplib
+from email.message import EmailMessage
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from telegram import (
     Update,
-    ReplyKeyboardMarkup,
-    KeyboardButton,
     InlineKeyboardButton,
-    InlineKeyboardMarkup,
+    InlineKeyboardMarkup
 )
 from telegram.ext import (
     ApplicationBuilder,
@@ -17,300 +17,229 @@ from telegram.ext import (
     filters,
 )
 
-from texts import WELCOME_TEXT, HOW_IT_WORKS_TEXT
+# ---------------- CONFIG ----------------
 
-TOKEN = os.getenv("TOKEN")
+TOKEN = os.getenv("BOT_TOKEN")
 
-ACTIVE_WIDTH = 2.5
-GRID_COLOR = "gray"
-GRID_ALPHA = 0.25
-GRID_WIDTH = 0.6
-MARGIN = 1
+EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
 
-MAGIC_WORD = "сашіко"
+logging.basicConfig(level=logging.INFO)
 
+TEXTURES = {
+    "premium_dark_indigo": "assets/textures/premium_dark_indigo.jpg",
+    "soft_indigo": "assets/textures/soft_indigo.jpg",
+    "natural_linen": "assets/textures/natural_linen.jpg",
+    "artisan_linen": "assets/textures/artisan_linen.jpg",
+    "wabi_indigo": "assets/textures/wabi_indigo.jpg",
+}
 
-# =========================
-# ПОСТІЙНЕ МЕНЮ
-# =========================
-def persistent_menu():
-    keyboard = [
-        [KeyboardButton("🚀 Створити візерунок")],
-        [KeyboardButton("🎲 Випадковий узор")],
-        [KeyboardButton("🧠 Як це працює?")]
-    ]
-    return ReplyKeyboardMarkup(
-        keyboard,
-        resize_keyboard=True,
-        is_persistent=True
-    )
+COLORS = {
+    "white": (245, 245, 245),
+    "cream": (255, 244, 220),
+    "gold": (212, 175, 55),
+    "red": (180, 30, 30),
+    "black": (30, 30, 30),
+}
 
+FONT_PATH = "assets/fonts/PlayfairDisplay-Bold.ttf"
 
-# =========================
-# КОДУВАННЯ
-# =========================
-def text_to_bits(text):
-    bits = ""
-    for char in text:
-        bits += format(ord(char), "08b")
-    return bits
+# ---------------- START ----------------
 
-
-def alternating(start_bit, length):
-    row = []
-    current = int(start_bit)
-    for _ in range(length):
-        row.append(current)
-        current = 1 - current
-    return row
-
-
-def build_horizontal(bits, width):
-    return [alternating(bit, width) for bit in bits]
-
-
-def build_vertical(bits, height):
-    matrix = [[0] * len(bits) for _ in range(height)]
-    for col, bit in enumerate(bits):
-        current = int(bit)
-        for row in range(height):
-            matrix[row][col] = current
-            current = 1 - current
-    return matrix
-
-
-# =========================
-# ГЕНЕРАЦІЯ
-# =========================
-def generate_image(horizontal_text, vertical_text, color, with_label, hd=False):
-
-    h_bits = text_to_bits(horizontal_text)
-    v_bits = text_to_bits(vertical_text)
-
-    MAX_BITS = 120
-    h_bits = h_bits[:MAX_BITS]
-    v_bits = v_bits[:MAX_BITS]
-
-    height = len(h_bits) if h_bits else 8
-    width = len(v_bits) if v_bits else 8
-
-    H = build_horizontal(h_bits or "00000000", width)
-    V = build_vertical(v_bits or "00000000", height)
-
-    extra_space = 2 if with_label else 0
-    total_height = height + 2 * MARGIN + extra_space
-    total_width = width + 2 * MARGIN
-
-    max_side = max(total_width, total_height)
-    scale = 0.15 if max_side > 100 else 0.25
-
-    figsize = (
-        max(total_width * scale, 6),
-        max(total_height * scale, 6)
-    )
-
-    dpi = 300 if hd else 200
-    line_width = 3 if hd else ACTIVE_WIDTH
-    font_size = 14 if hd else 10
-
-    filename = "pattern.png"
-
-    fig, ax = plt.subplots(figsize=figsize)
-
-    for x in range(total_width + 1):
-        ax.plot([x, x], [extra_space, total_height],
-                color=GRID_COLOR, alpha=GRID_ALPHA, linewidth=GRID_WIDTH)
-
-    for y in range(extra_space, total_height + 1):
-        ax.plot([0, total_width], [y, y],
-                color=GRID_COLOR, alpha=GRID_ALPHA, linewidth=GRID_WIDTH)
-
-    for r in range(height):
-        for c in range(width):
-            draw_x = c + MARGIN
-            draw_y = height - r - 1 + MARGIN + extra_space
-
-            if H[r][c] == 1:
-                ax.plot([draw_x, draw_x + 1], [draw_y, draw_y],
-                        color=color, linewidth=line_width)
-
-            if V[r][c] == 1:
-                ax.plot([draw_x + 1, draw_x + 1], [draw_y, draw_y + 1],
-                        color=color, linewidth=line_width)
-
-    if with_label:
-        if horizontal_text == vertical_text:
-            label = horizontal_text
-        else:
-            label = f"H: {horizontal_text} | V: {vertical_text}"
-
-        ax.text(
-            total_width / 2,
-            0.8,
-            label,
-            ha="center",
-            fontsize=font_size
-        )
-
-    ax.set_xlim(0, total_width)
-    ax.set_ylim(0, total_height)
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.set_aspect("equal")
-
-    fig.savefig(filename, dpi=dpi, bbox_inches="tight")
-    plt.close(fig)
-
-    return filename
-
-
-# =========================
-# TELEGRAM
-# =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.clear()
     await update.message.reply_text(
-        WELCOME_TEXT,
-        reply_markup=persistent_menu()
+        "Напишіть слово САШІКО щоб почати створення постера 🧵✨"
     )
 
+# ---------------- HANDLE TEXT ----------------
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
-    lower = text.lower()
 
-    # 🔥 Магічне слово
-    if lower == MAGIC_WORD:
-        context.user_data.clear()
+    text = update.message.text.strip()
+
+    if text.lower() == "сашіко":
+        await update.message.reply_text(
+            "✨ Як працює бот:\n\n"
+            "1️⃣ Оберіть тканину\n"
+            "2️⃣ Оберіть стиль (Artisan або Zen)\n"
+            "3️⃣ Оберіть колір нитки\n"
+            "4️⃣ Введіть текст\n\n"
+            "Після цього ви отримаєте HQ постер.\n"
+        )
 
         keyboard = [
-            [InlineKeyboardButton("✨ Почати творити", callback_data="enter_creator")]
+            [InlineKeyboardButton("Premium Indigo", callback_data="premium_dark_indigo")],
+            [InlineKeyboardButton("Soft Indigo", callback_data="soft_indigo")],
+            [InlineKeyboardButton("Natural Linen", callback_data="natural_linen")],
+            [InlineKeyboardButton("Artisan Linen", callback_data="artisan_linen")],
+            [InlineKeyboardButton("Wabi Indigo", callback_data="wabi_indigo")],
         ]
 
         await update.message.reply_text(
-            HOW_IT_WORKS_TEXT,
+            "Оберіть тканину:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
 
-    if text == "🧠 Як це працює?":
-        await update.message.reply_text(
-            HOW_IT_WORKS_TEXT,
-            reply_markup=persistent_menu()
-        )
+    if context.user_data.get("awaiting_text"):
+        await generate_poster(update, context, text)
         return
 
-    if text == "🎲 Випадковий узор":
-        context.user_data["horizontal"] = random.choice(["СОНЦЕ", "КОД", "ART", "LOVE"])
-        context.user_data["vertical"] = random.choice(["СОНЦЕ", "КОД", "ART", "LOVE"])
-        context.user_data["step"] = "label_choice"
-
-    elif text == "🚀 Створити візерунок":
-        context.user_data.clear()
-        context.user_data["step"] = "horizontal"
-        await update.message.reply_text("Введи горизонтальний текст:")
+    if context.user_data.get("awaiting_email"):
+        await send_email(update, context, text)
         return
 
-    elif context.user_data.get("step") == "horizontal":
-        context.user_data["horizontal"] = text
-        context.user_data["step"] = "vertical"
-        await update.message.reply_text("Тепер введи вертикальний текст:")
-        return
+# ---------------- TEXTURE ----------------
 
-    elif context.user_data.get("step") == "vertical":
-        context.user_data["vertical"] = text
-        context.user_data["step"] = "label_choice"
+async def texture_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
 
-    else:
-        return
+    context.user_data["texture"] = query.data
 
     keyboard = [
-        [InlineKeyboardButton("🏷 З підписом", callback_data="label_yes")],
-        [InlineKeyboardButton("🚫 Без підпису", callback_data="label_no")]
+        [InlineKeyboardButton("🪡 Artisan", callback_data="mode_artisan")],
+        [InlineKeyboardButton("🧘 Zen", callback_data="mode_zen")],
     ]
 
-    await update.message.reply_text(
-        "Додати підпис?",
+    await query.edit_message_text(
+        "Оберіть режим:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
+# ---------------- MODE ----------------
 
-async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def mode_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    data = query.data
 
-    if data == "enter_creator":
-        await query.message.reply_text(
-            "🧵 STITCH & CODE активовано.\nОбери дію:",
-            reply_markup=persistent_menu()
-        )
-        return
+    context.user_data["mode"] = query.data.replace("mode_", "")
 
-    if data.startswith("label_"):
-        context.user_data["with_label"] = data == "label_yes"
+    keyboard = [
+        [InlineKeyboardButton("White", callback_data="color_white")],
+        [InlineKeyboardButton("Cream", callback_data="color_cream")],
+        [InlineKeyboardButton("Gold", callback_data="color_gold")],
+        [InlineKeyboardButton("Red", callback_data="color_red")],
+        [InlineKeyboardButton("Black", callback_data="color_black")],
+    ]
 
-        keyboard = [
-            [InlineKeyboardButton("🖼 Звичайна якість", callback_data="quality_normal")],
-            [InlineKeyboardButton("🖨 HD для друку", callback_data="quality_hd")]
-        ]
-
-        await query.message.reply_text(
-            "Обери якість зображення:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
-    if data.startswith("quality_"):
-        context.user_data["hd"] = data == "quality_hd"
-
-        keyboard = [
-            [InlineKeyboardButton("🟦 Індиго класика", callback_data="#1E3A8A")],
-            [InlineKeyboardButton("⚪ Молочний", callback_data="#F8F5EC")],
-            [InlineKeyboardButton("⚫ Сажа", callback_data="#111827")],
-            [InlineKeyboardButton("🌿 Хвоя", callback_data="#065F46")],
-            [InlineKeyboardButton("🌾 Гірчичний", callback_data="#B45309")],
-            [InlineKeyboardButton("🔴 Бордо", callback_data="#8B0000")],
-            [InlineKeyboardButton("🌸 Пудровий", callback_data="#BE185D")],
-            [InlineKeyboardButton("💜 Сливовий", callback_data="#6B21A8")],
-        ]
-
-        await query.message.reply_text(
-            "Обери колір нитки (Sashiko palette):",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
-    filename = generate_image(
-        context.user_data["horizontal"],
-        context.user_data["vertical"],
-        data,
-        context.user_data.get("with_label", False),
-        context.user_data.get("hd", False)
+    await query.edit_message_text(
+        "Оберіть колір нитки:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-    with open(filename, "rb") as photo:
-        await query.message.reply_photo(
-            photo=photo,
-            reply_markup=persistent_menu()
-        )
+# ---------------- COLOR ----------------
+
+async def color_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    color_key = query.data.replace("color_", "")
+    context.user_data["color"] = COLORS[color_key]
+
+    context.user_data["awaiting_text"] = True
+
+    await query.edit_message_text("Введіть текст для постера:")
+
+# ---------------- RENDER ----------------
+
+async def generate_poster(update, context, text):
+
+    texture_path = TEXTURES[context.user_data["texture"]]
+    mode = context.user_data["mode"]
+    color = context.user_data["color"]
+
+    # HQ size
+    base = Image.open(texture_path).convert("RGB")
+    base = base.resize((3000, 3000))
+    draw = ImageDraw.Draw(base)
+
+    font_size = 260
+    font = ImageFont.truetype(FONT_PATH, font_size)
+
+    bbox = draw.textbbox((0, 0), text, font=font)
+    w = bbox[2] - bbox[0]
+    h = bbox[3] - bbox[1]
+
+    x = (3000 - w) // 2
+    y = (3000 - h) // 2
+
+    if mode == "artisan":
+        shadow = tuple(max(c - 40, 0) for c in color)
+        draw.text((x+6, y+6), text, font=font, fill=shadow)
+        draw.text((x, y), text, font=font, fill=color)
+        base = base.filter(ImageFilter.GaussianBlur(0.4))
+    else:
+        draw.text((x, y), text, font=font, fill=color)
+
+    output_path = "poster_hq.jpg"
+    base.save(output_path, quality=100)
+
+    context.user_data["file_path"] = output_path
+    context.user_data["awaiting_text"] = False
+
+    await update.message.reply_photo(photo=open(output_path, "rb"))
+
+    keyboard = [
+        [InlineKeyboardButton("📩 Надіслати на Email", callback_data="send_email")]
+    ]
+
+    await update.message.reply_text(
+        "Бажаєте отримати файл у високій якості на пошту?",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# ---------------- EMAIL ----------------
+
+async def email_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    context.user_data["awaiting_email"] = True
+
+    await query.edit_message_text("Введіть вашу email адресу:")
+
+async def send_email(update, context, email):
+
+    file_path = context.user_data["file_path"]
+
+    msg = EmailMessage()
+    msg["Subject"] = "Ваш Sashiko Poster HQ"
+    msg["From"] = EMAIL_ADDRESS
+    msg["To"] = email
+    msg.set_content("Ваш постер у високій якості у вкладенні.")
+
+    with open(file_path, "rb") as f:
+        msg.add_attachment(f.read(),
+                           maintype="image",
+                           subtype="jpeg",
+                           filename="sashiko_poster.jpg")
+
+    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+        server.starttls()
+        server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+        server.send_message(msg)
 
     context.user_data.clear()
 
+    await update.message.reply_text("✅ Файл надіслано на пошту!")
+
+# ---------------- MAIN ----------------
 
 def main():
-    if not TOKEN:
-        raise ValueError("TOKEN не знайдено.")
-
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    print("Bot running...")
-    app.run_polling(drop_pending_updates=True)
+    app.add_handler(CallbackQueryHandler(texture_selected, pattern="^(premium_dark_indigo|soft_indigo|natural_linen|artisan_linen|wabi_indigo)$"))
+    app.add_handler(CallbackQueryHandler(mode_selected, pattern="^mode_"))
+    app.add_handler(CallbackQueryHandler(color_selected, pattern="^color_"))
+    app.add_handler(CallbackQueryHandler(email_button, pattern="send_email"))
 
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
