@@ -14,10 +14,6 @@ from PIL import Image, ImageDraw, ImageFont
 from reportlab.platypus import SimpleDocTemplate, Image as RLImage
 from reportlab.lib.pagesizes import A3
 
-# =========================
-# ENV
-# =========================
-
 TOKEN = os.environ.get("BOT_TOKEN")
 if not TOKEN:
     raise RuntimeError("BOT_TOKEN not set")
@@ -62,14 +58,11 @@ STATE_WAIT_HORIZONTAL = "wait_horizontal"
 STATE_WAIT_VERTICAL = "wait_vertical"
 
 # =========================
-# BINARY ENGINE
+# UTIL
 # =========================
 
 def text_to_bits(text):
-    bits = ""
-    for char in text:
-        bits += format(ord(char), "08b")
-    return bits
+    return "".join(format(ord(c), "08b") for c in text)
 
 def alternating(start_bit, length):
     row = []
@@ -91,59 +84,39 @@ def build_vertical(bits, height):
             current = 1 - current
     return matrix
 
-# =========================
-# DRAW THREAD
-# =========================
-
 def draw_thread(draw, x1, y1, x2, y2, color):
     shadow = tuple(max(c-60,0) for c in color)
     draw.line((x1, y1+4, x2, y2+4), fill=shadow, width=THREAD_WIDTH+2)
     draw.line((x1, y1, x2, y2), fill=color, width=THREAD_WIDTH)
-    highlight = tuple(min(c+40,255) for c in color)
-    draw.line((x1, y1-2, x2, y2-2), fill=highlight, width=3)
-
-def add_white_frame(img):
-    outer = 250
-    w, h = img.size
-    framed = Image.new("RGB", (w+outer*2, h+outer*2), (245,245,245))
-    framed.paste(img, (outer, outer))
-    return framed
 
 # =========================
 # POSTER
 # =========================
 
-def generate_poster(horizontal_text, vertical_text, texture_key, thread_key):
+def generate_poster(horizontal, vertical, texture_key, thread_key):
 
-    h_bits = text_to_bits(horizontal_text)
-    v_bits = text_to_bits(vertical_text)
+    bits_h = text_to_bits(horizontal)
+    bits_v = text_to_bits(vertical)
 
-    height = len(h_bits)
-    width  = len(v_bits)
+    height = len(bits_h)
+    width  = len(bits_v)
 
-    H = build_horizontal(h_bits, width)
-    V = build_vertical(v_bits, height)
+    H = build_horizontal(bits_h, width)
+    V = build_vertical(bits_v, height)
 
-    canvas_size = 4000
-
-    texture_path = TEXTURES.get(texture_key)
+    size = 3500
 
     try:
-        bg = Image.open(texture_path).convert("RGB")
-        bg = bg.resize((canvas_size, canvas_size))
-    except Exception as e:
-        print("Texture load error:", e)
-        bg = Image.new("RGB", (canvas_size, canvas_size), (230,230,230))
+        bg = Image.open(TEXTURES[texture_key]).convert("RGB")
+        bg = bg.resize((size, size))
+    except:
+        bg = Image.new("RGB", (size, size), (230,230,230))
 
     draw = ImageDraw.Draw(bg)
+    thread_color = THREAD_COLORS[thread_key]
 
-    pattern_w = width * CELL_SIZE
-    pattern_h = height * CELL_SIZE
-
-    offset_x = (canvas_size - pattern_w)//2
-    offset_y = (canvas_size - pattern_h)//2 - 100
-
-    thread_color = THREAD_COLORS.get(thread_key, (212,175,55))
+    offset_x = (size - width*CELL_SIZE)//2
+    offset_y = (size - height*CELL_SIZE)//2
 
     for r in range(height):
         for c in range(width):
@@ -157,40 +130,23 @@ def generate_poster(horizontal_text, vertical_text, texture_key, thread_key):
             if V[r][c] == 1:
                 draw_thread(draw, x+CELL_SIZE, y, x+CELL_SIZE, y+CELL_SIZE, thread_color)
 
-    font = ImageFont.truetype(FONT_PATH, 120)
-
-    title = f"{horizontal_text.upper()} | {vertical_text.upper()}"
-    bbox = draw.textbbox((0,0), title, font=font)
-    text_w = bbox[2]-bbox[0]
-
-    draw.text(((canvas_size-text_w)//2, canvas_size-350),
-              title, fill=(40,40,40), font=font)
-
-    framed = add_white_frame(bg)
-
     file_id = str(uuid.uuid4())
-    output_path = f"poster_{file_id}.jpg"
-    framed.save(output_path, quality=95)
+    path = f"poster_{file_id}.jpg"
+    bg.save(path, quality=95)
+    return path
 
-    return output_path
+def generate_pattern_pdf(horizontal, vertical):
 
-# =========================
-# PATTERN PDF
-# =========================
+    bits_h = text_to_bits(horizontal)
+    bits_v = text_to_bits(vertical)
 
-def generate_pattern_pdf(horizontal_text, vertical_text):
+    height = len(bits_h)
+    width  = len(bits_v)
 
-    h_bits = text_to_bits(horizontal_text)
-    v_bits = text_to_bits(vertical_text)
+    H = build_horizontal(bits_h, width)
+    V = build_vertical(bits_v, height)
 
-    height = len(h_bits)
-    width  = len(v_bits)
-
-    H = build_horizontal(h_bits, width)
-    V = build_vertical(v_bits, height)
-
-    img_size = 3500
-    img = Image.new("RGB", (img_size, img_size), "white")
+    img = Image.new("RGB", (3000,3000), "white")
     draw = ImageDraw.Draw(img)
 
     cell = 25
@@ -198,28 +154,23 @@ def generate_pattern_pdf(horizontal_text, vertical_text):
 
     for r in range(height):
         for c in range(width):
-
             x = offset + c*cell
             y = offset + (height-r-1)*cell
 
             if H[r][c] == 1:
                 draw.line((x, y, x+cell, y), fill="black", width=3)
-
             if V[r][c] == 1:
                 draw.line((x+cell, y, x+cell, y+cell), fill="black", width=3)
 
-    file_id = str(uuid.uuid4())
-    img_path = f"pattern_{file_id}.png"
-    pdf_path = f"pattern_{file_id}.pdf"
+    img_path = f"pattern_{uuid.uuid4()}.png"
+    pdf_path = img_path.replace(".png",".pdf")
 
     img.save(img_path)
 
     doc = SimpleDocTemplate(pdf_path, pagesize=A3)
-    elements = [RLImage(img_path, width=A3[0], height=A3[1])]
-    doc.build(elements)
+    doc.build([RLImage(img_path, width=A3[0], height=A3[1])])
 
     os.remove(img_path)
-
     return pdf_path
 
 # =========================
@@ -230,14 +181,106 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["state"] = STATE_WAIT_TRIGGER
     await update.message.reply_text("Напишіть «сашіко», щоб почати ✨")
 
+async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    if data == "type_poster":
+        context.user_data["mode"] = "poster"
+        context.user_data["state"] = STATE_CHOOSE_THREAD
+
+        keyboard = [
+            [InlineKeyboardButton("⚪ Білий", callback_data="thread_white"),
+             InlineKeyboardButton("🟡 Золотий", callback_data="thread_gold")],
+            [InlineKeyboardButton("🔴 Червоний", callback_data="thread_red"),
+             InlineKeyboardButton("🟥 Бордовий", callback_data="thread_burgundy")],
+            [InlineKeyboardButton("🟢 Темно-зелений", callback_data="thread_darkgreen"),
+             InlineKeyboardButton("⚫ Чорний", callback_data="thread_black")],
+            [InlineKeyboardButton("🔵 Темно-синій", callback_data="thread_navy"),
+             InlineKeyboardButton("🟤 Коричневий", callback_data="thread_brown")],
+        ]
+
+        await query.edit_message_text("Оберіть колір нитки:",
+            reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    if data == "type_pattern":
+        context.user_data["mode"] = "pattern"
+        context.user_data["state"] = STATE_WAIT_HORIZONTAL
+        await query.edit_message_text("Введіть горизонтальний текст:")
+        return
+
+    if data.startswith("thread_"):
+        context.user_data["thread"] = data.replace("thread_","")
+        context.user_data["state"] = STATE_CHOOSE_TEXTURE
+
+        keyboard = [
+            [InlineKeyboardButton("Premium Dark Indigo", callback_data="tex_premium_dark_indigo")],
+            [InlineKeyboardButton("Soft Indigo", callback_data="tex_soft_indigo")],
+            [InlineKeyboardButton("Natural Linen", callback_data="tex_natural_linen")],
+            [InlineKeyboardButton("Artisan Linen", callback_data="tex_artisan_linen")],
+            [InlineKeyboardButton("Wabi Indigo", callback_data="tex_wabi_indigo")],
+        ]
+
+        await query.edit_message_text("Оберіть тканину:",
+            reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    if data.startswith("tex_"):
+        context.user_data["texture"] = data.replace("tex_","")
+        context.user_data["state"] = STATE_WAIT_HORIZONTAL
+        await query.edit_message_text("Введіть горизонтальний текст:")
+        return
+
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    state = context.user_data.get("state")
+
+    if state == STATE_WAIT_TRIGGER and update.message.text.lower() == "сашіко":
+        keyboard = [[
+            InlineKeyboardButton("🖼 Постер", callback_data="type_poster"),
+            InlineKeyboardButton("📐 Схема", callback_data="type_pattern"),
+        ]]
+        context.user_data["state"] = STATE_CHOOSE_TYPE
+        await update.message.reply_text("Що створюємо?",
+            reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    if state == STATE_WAIT_HORIZONTAL:
+        context.user_data["horizontal"] = update.message.text
+        context.user_data["state"] = STATE_WAIT_VERTICAL
+        await update.message.reply_text("Введіть вертикальний текст:")
+        return
+
+    if state == STATE_WAIT_VERTICAL:
+
+        horizontal = context.user_data["horizontal"]
+        vertical = update.message.text
+
+        if context.user_data["mode"] == "poster":
+            path = generate_poster(
+                horizontal,
+                vertical,
+                context.user_data["texture"],
+                context.user_data["thread"],
+            )
+            await update.message.reply_photo(photo=open(path,"rb"))
+            os.remove(path)
+
+        else:
+            pdf = generate_pattern_pdf(horizontal, vertical)
+            await update.message.reply_document(document=open(pdf,"rb"))
+            os.remove(pdf)
+
+        context.user_data.clear()
+        return
+
 async def main():
     app = ApplicationBuilder().token(TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_callbacks))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-
-    print("Bot started...")
     await app.run_polling()
 
 if __name__ == "__main__":
