@@ -18,7 +18,7 @@ from reportlab.lib.units import inch
 
 # ---------------- SAFE TOKEN ----------------
 
-TOKEN = os.environ.get("BOT_TOKEN")
+TOKEN = "8481965103:AAEzJY6vQz1OAOQqjyM7fBbB-g19AMqdNvM"
 if not TOKEN:
     raise RuntimeError("❌ BOT_TOKEN not found in environment variables.")
 
